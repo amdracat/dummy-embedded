@@ -22,11 +22,23 @@ void Test_MotorTest()
     I2cDrv_DummySetReadData(0x48, 0x00, buffer, sizeof(buffer));
 
     Motor_SetSpeed(MOTOR_SPEED_FAST);
-    Motor_SetMode(MOTOR_MODE_LEFT);
-    sleep_ms(500);
-
+    sleep_ms(100);
     ASSERT_EQ(MOTOR_SPEED_FAST, Motor_GetSpeed());
-    ASSERT_EQ(MOTOR_MODE_LEFT, Motor_GetMode());
+
+    const MotorMode modes[] = {
+        MOTOR_MODE_STOP,
+        MOTOR_MODE_LEFT,
+        MOTOR_MODE_RIGHT,
+        MOTOR_MODE_FRONT,
+        MOTOR_MODE_BACK
+    };
+    const int mode_delays[] = {150, 400, 400, 500, 600};
+
+    for (size_t i = 0; i < sizeof(modes) / sizeof(modes[0]); ++i) {
+        Motor_SetMode(modes[i]);
+        sleep_ms(mode_delays[i]);
+        ASSERT_EQ(modes[i], Motor_GetMode());
+    }
 
     UnitTestFrame_ReportResult();
 }

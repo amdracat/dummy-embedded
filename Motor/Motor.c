@@ -3,6 +3,7 @@
 #include "GpioDrv.h"
 #include "TemperatureSensor.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <stdint.h>
 #include <time.h>
 
@@ -14,7 +15,8 @@ enum {
     MOTOR_MSG_SET_SPEED = 1,
     MOTOR_MSG_SET_MODE = 2,
     MOTOR_MSG_CONTROL = 3,
-    MOTOR_MSG_TEMPERATURE_UPDATE = 4
+    MOTOR_MSG_TEMPERATURE_UPDATE = 4,
+    MOTOR_MSG_MODE_STEP = 5
 };
 
 static gpio_t s_gpio = {0};
@@ -23,13 +25,23 @@ static MotorSpeed s_target_speed = MOTOR_SPEED_STOP;
 static MotorMode s_current_mode = MOTOR_MODE_STOP;
 static int s_last_temperature = 0;
 
+typedef struct {
+    MotorMode mode;
+    int stage;
+    int sequence_id;
+} ModeSequenceContext;
+
 static void motor_task(void);
 static void motor_timer_callback(void *arg);
 static void motor_temperature_updated(void *arg);
-static void motor_sleep_ms(uint32_t ms);
+static void motor_mode_sequence_timer(void *arg);
 static void set_motor_outputs_off(void);
+static void schedule_mode_timer(MotorMode mode, int stage, uint32_t delay_ms);
 static void apply_motor_mode_sequence(MotorMode mode);
 static void update_motor_speed_control(void);
+
+static int s_mode_sequence_id = 0;
+static int s_mode_sequence_active = 0;
 
 void Motor_Init(void)
 {
@@ -75,6 +87,48 @@ static void motor_task(void)
         case MOTOR_MSG_SET_MODE:
             apply_motor_mode_sequence((MotorMode)(uintptr_t)msg.Data);
             break;
+        case MOTOR_MSG_MODE_STEP: {
+            ModeSequenceContext *ctx = (ModeSequenceContext *)msg.Data;
+            if (!ctx) {
+                break;
+            }
+            if (ctx->sequence_id != s_mode_sequence_id) {
+                free(ctx);
+                break;
+            }
+
+            if (ctx->stage == 1) {
+                switch (ctx->mode) {
+                case MOTOR_MODE_STOP:
+                    set_motor_outputs_off();
+                    s_current_mode = ctx->mode;
+                    s_mode_sequence_active = 0;
+                    break;
+                case MOTOR_MODE_LEFT:
+                    GpioDrv_WritePin(&s_gpio, PORT_LEFT, 1);
+                    schedule_mode_timer(ctx->mode, 2, 50);
+                    break;
+                case MOTOR_MODE_RIGHT:
+                    GpioDrv_WritePin(&s_gpio, PORT_RIGHT, 1);
+                    schedule_mode_timer(ctx->mode, 2, 50);
+                    break;
+                case MOTOR_MODE_FRONT:
+                    GpioDrv_WritePin(&s_gpio, PORT_FRONT, 1);
+                    schedule_mode_timer(ctx->mode, 2, 50);
+                    break;
+                case MOTOR_MODE_BACK:
+                    GpioDrv_WritePin(&s_gpio, PORT_BACK, 1);
+                    schedule_mode_timer(ctx->mode, 2, 50);
+                    break;
+                }
+            } else if (ctx->stage == 2) {
+                GpioDrv_WritePin(&s_gpio, PORT_ENBALE_MOTOR, 1);
+                s_current_mode = ctx->mode;
+                s_mode_sequence_active = 0;
+            }
+            free(ctx);
+            break;
+        }
         case MOTOR_MSG_CONTROL:
         case MOTOR_MSG_TEMPERATURE_UPDATE:
             update_motor_speed_control();
@@ -98,10 +152,27 @@ static void motor_temperature_updated(void *arg)
     PosixOs_SendMsg(MOTOR_QUEUE_ID, MOTOR_MSG_TEMPERATURE_UPDATE, NULL);
 }
 
-static void motor_sleep_ms(uint32_t ms)
+static void motor_mode_sequence_timer(void *arg)
 {
-    struct timespec ts = {ms / 1000, (ms % 1000) * 1000000};
-    nanosleep(&ts, NULL);
+    ModeSequenceContext *ctx = (ModeSequenceContext *)arg;
+    if (!ctx) {
+        return;
+    }
+
+    PosixOs_SendMsg(MOTOR_QUEUE_ID, MOTOR_MSG_MODE_STEP, ctx);
+}
+
+static void schedule_mode_timer(MotorMode mode, int stage, uint32_t delay_ms)
+{
+    ModeSequenceContext *ctx = (ModeSequenceContext *)malloc(sizeof(ModeSequenceContext));
+    if (!ctx) {
+        return;
+    }
+    ctx->mode = mode;
+    ctx->stage = stage;
+    ctx->sequence_id = s_mode_sequence_id;
+
+    PosixOs_SetupTimer(motor_mode_sequence_timer, delay_ms, ctx);
 }
 
 static void set_motor_outputs_off(void)
@@ -116,36 +187,25 @@ static void set_motor_outputs_off(void)
 static void apply_motor_mode_sequence(MotorMode mode)
 {
     set_motor_outputs_off();
+    s_mode_sequence_id++;
+    s_mode_sequence_active = 1;
     switch (mode) {
     case MOTOR_MODE_STOP:
-        motor_sleep_ms(100);
+        schedule_mode_timer(mode, 1, 100);
         break;
     case MOTOR_MODE_LEFT:
-        motor_sleep_ms(30);
-        GpioDrv_WritePin(&s_gpio, PORT_LEFT, 1);
-        motor_sleep_ms(50);
-        GpioDrv_WritePin(&s_gpio, PORT_ENBALE_MOTOR, 1);
+        schedule_mode_timer(mode, 1, 30);
         break;
     case MOTOR_MODE_RIGHT:
-        motor_sleep_ms(30);
-        GpioDrv_WritePin(&s_gpio, PORT_RIGHT, 1);
-        motor_sleep_ms(50);
-        GpioDrv_WritePin(&s_gpio, PORT_ENBALE_MOTOR, 1);
+        schedule_mode_timer(mode, 1, 30);
         break;
     case MOTOR_MODE_FRONT:
-        motor_sleep_ms(100);
-        GpioDrv_WritePin(&s_gpio, PORT_FRONT, 1);
-        motor_sleep_ms(50);
-        GpioDrv_WritePin(&s_gpio, PORT_ENBALE_MOTOR, 1);
+        schedule_mode_timer(mode, 1, 100);
         break;
     case MOTOR_MODE_BACK:
-        motor_sleep_ms(200);
-        GpioDrv_WritePin(&s_gpio, PORT_BACK, 1);
-        motor_sleep_ms(50);
-        GpioDrv_WritePin(&s_gpio, PORT_ENBALE_MOTOR, 1);
+        schedule_mode_timer(mode, 1, 200);
         break;
     }
-    s_current_mode = mode;
 }
 
 static void update_motor_speed_control(void)

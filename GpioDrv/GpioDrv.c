@@ -49,7 +49,7 @@ void GpioDrv_DummyWritePin(Port port, int value)
         return;
     }
     s_dummy_values[port] = value;
-    printf("[GPIO] port=%d value=%d\n", (int)port, value);
+    //printf("[GPIO] port=%d value=%d\n", (int)port, value);
 }
 
 void GpioDrv_DummySetReadData(Port port, int value)
