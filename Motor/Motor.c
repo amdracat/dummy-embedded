@@ -1,5 +1,6 @@
 #include "Motor.h"
 #include "PosixOs.h"
+#include "OsTestLayer.h"
 #include "GpioDrv.h"
 #include "TemperatureSensor.h"
 #include <stdio.h>
@@ -31,14 +32,34 @@ typedef struct {
     int sequence_id;
 } ModeSequenceContext;
 
+typedef void (*MotorTaskFunc)(void *data);
+
 static void motor_task(void);
 static void motor_timer_callback(void *arg);
 static void motor_temperature_updated(void *arg);
 static void motor_mode_sequence_timer(void *arg);
+static void HandleMotorMessageSetSpeed(void *data);
+static void HandleMotorMessageSetMode(void *data);
+static void HandleMotorMessageControl(void *data);
+static void HandleMotorMessageTemperatureUpdate(void *data);
+static void HandleMotorMessageModeStep(void *data);
+static MotorTaskFunc search_motor_function(uint32_t msgId);
+static void SendMsgWrapper_TaskMotor(uint32_t msgId, void *data);
 static void set_motor_outputs_off(void);
 static void schedule_mode_timer(MotorMode mode, int stage, uint32_t delay_ms);
 static void apply_motor_mode_sequence(MotorMode mode);
 static void update_motor_speed_control(void);
+
+static const struct {
+    uint32_t msgId;
+    MotorTaskFunc handler;
+} s_motor_message_table[] = {
+    { MOTOR_MSG_SET_SPEED, HandleMotorMessageSetSpeed },
+    { MOTOR_MSG_SET_MODE, HandleMotorMessageSetMode },
+    { MOTOR_MSG_CONTROL, HandleMotorMessageControl },
+    { MOTOR_MSG_TEMPERATURE_UPDATE, HandleMotorMessageTemperatureUpdate },
+    { MOTOR_MSG_MODE_STEP, HandleMotorMessageModeStep },
+};
 
 static int s_mode_sequence_id = 0;
 static int s_mode_sequence_active = 0;
@@ -49,13 +70,13 @@ void Motor_Init(void)
     PosixOs_CreateMsgQueues(MOTOR_QUEUE_ID, MOTOR_QUEUE_COUNT);
     PosixOs_CreateTask(motor_task, "Motor");
     PosixOs_EventSubscribe(TEMPERATURE_UPDATE_EVENT, motor_temperature_updated, NULL);
-    PosixOs_SetupTimer(motor_timer_callback, MOTOR_CONTROL_INTERVAL_MS, NULL);
+    OsTestLayer_SetTimer(MOTOR_CONTROL_INTERVAL_MS, motor_timer_callback, NULL);
 }
 
 void Motor_SetSpeed(MotorSpeed speed)
 {
     s_target_speed = speed;
-    PosixOs_SendMsg(MOTOR_QUEUE_ID, MOTOR_MSG_SET_SPEED, (void *)(uintptr_t)speed);
+    SendMsgWrapper_TaskMotor(MOTOR_MSG_SET_SPEED, (void *)(uintptr_t)speed);
 }
 
 MotorSpeed Motor_GetSpeed(void)
@@ -65,12 +86,103 @@ MotorSpeed Motor_GetSpeed(void)
 
 void Motor_SetMode(MotorMode mode)
 {
-    PosixOs_SendMsg(MOTOR_QUEUE_ID, MOTOR_MSG_SET_MODE, (void *)(uintptr_t)mode);
+    SendMsgWrapper_TaskMotor(MOTOR_MSG_SET_MODE, (void *)(uintptr_t)mode);
 }
 
 MotorMode Motor_GetMode(void)
 {
     return s_current_mode;
+}
+
+static void HandleMotorMessageSetSpeed(void *data)
+{
+    MotorSpeed speed = (MotorSpeed)(uintptr_t)data;
+    s_target_speed = speed;
+    s_current_speed = s_target_speed;
+    update_motor_speed_control();
+}
+
+static void HandleMotorMessageSetMode(void *data)
+{
+    apply_motor_mode_sequence((MotorMode)(uintptr_t)data);
+}
+
+static void HandleMotorMessageControl(void *data)
+{
+    (void)data;
+    update_motor_speed_control();
+}
+
+static void HandleMotorMessageTemperatureUpdate(void *data)
+{
+    (void)data;
+    update_motor_speed_control();
+}
+
+static void HandleMotorMessageModeStep(void *data)
+{
+    ModeSequenceContext *ctx = (ModeSequenceContext *)data;
+    if (!ctx) {
+        return;
+    }
+
+    if (ctx->sequence_id != s_mode_sequence_id) {
+        free(ctx);
+        return;
+    }
+
+    if (ctx->stage == 1) {
+        switch (ctx->mode) {
+        case MOTOR_MODE_STOP:
+            set_motor_outputs_off();
+            s_current_mode = ctx->mode;
+            s_mode_sequence_active = 0;
+            break;
+        case MOTOR_MODE_LEFT:
+            GpioDrv_WritePin(&s_gpio, PORT_LEFT, 1);
+            schedule_mode_timer(ctx->mode, 2, 50);
+            break;
+        case MOTOR_MODE_RIGHT:
+            GpioDrv_WritePin(&s_gpio, PORT_RIGHT, 1);
+            schedule_mode_timer(ctx->mode, 2, 50);
+            break;
+        case MOTOR_MODE_FRONT:
+            GpioDrv_WritePin(&s_gpio, PORT_FRONT, 1);
+            schedule_mode_timer(ctx->mode, 2, 50);
+            break;
+        case MOTOR_MODE_BACK:
+            GpioDrv_WritePin(&s_gpio, PORT_BACK, 1);
+            schedule_mode_timer(ctx->mode, 2, 50);
+            break;
+        }
+    } else if (ctx->stage == 2) {
+        GpioDrv_WritePin(&s_gpio, PORT_ENBALE_MOTOR, 1);
+        s_current_mode = ctx->mode;
+        s_mode_sequence_active = 0;
+    }
+    free(ctx);
+}
+
+static MotorTaskFunc search_motor_function(uint32_t msgId)
+{
+    for (size_t i = 0; i < sizeof(s_motor_message_table) / sizeof(s_motor_message_table[0]); ++i) {
+        if (s_motor_message_table[i].msgId == msgId) {
+            return s_motor_message_table[i].handler;
+        }
+    }
+    return NULL;
+}
+
+static void SendMsgWrapper_TaskMotor(uint32_t msgId, void *data)
+{
+#if defined(OS_TEST_LAYER_ENABLE)
+    MotorTaskFunc handler = search_motor_function(msgId);
+    if (handler != NULL) {
+        OsTestLayer_Post(handler, data, sizeof(data));
+    }
+#else
+    PosixOs_SendMsg(MOTOR_QUEUE_ID, msgId, data);
+#endif
 }
 
 static void motor_task(void)
@@ -142,14 +254,14 @@ static void motor_task(void)
 static void motor_timer_callback(void *arg)
 {
     (void)arg;
-    PosixOs_SendMsg(MOTOR_QUEUE_ID, MOTOR_MSG_CONTROL, NULL);
-    PosixOs_SetupTimer(motor_timer_callback, MOTOR_CONTROL_INTERVAL_MS, NULL);
+    SendMsgWrapper_TaskMotor(MOTOR_MSG_CONTROL, NULL);
+    OsTestLayer_SetTimer(MOTOR_CONTROL_INTERVAL_MS, motor_timer_callback, NULL);
 }
 
 static void motor_temperature_updated(void *arg)
 {
     (void)arg;
-    PosixOs_SendMsg(MOTOR_QUEUE_ID, MOTOR_MSG_TEMPERATURE_UPDATE, NULL);
+    SendMsgWrapper_TaskMotor(MOTOR_MSG_TEMPERATURE_UPDATE, NULL);
 }
 
 static void motor_mode_sequence_timer(void *arg)
@@ -159,7 +271,7 @@ static void motor_mode_sequence_timer(void *arg)
         return;
     }
 
-    PosixOs_SendMsg(MOTOR_QUEUE_ID, MOTOR_MSG_MODE_STEP, ctx);
+    SendMsgWrapper_TaskMotor(MOTOR_MSG_MODE_STEP, ctx);
 }
 
 static void schedule_mode_timer(MotorMode mode, int stage, uint32_t delay_ms)
@@ -172,7 +284,7 @@ static void schedule_mode_timer(MotorMode mode, int stage, uint32_t delay_ms)
     ctx->stage = stage;
     ctx->sequence_id = s_mode_sequence_id;
 
-    PosixOs_SetupTimer(motor_mode_sequence_timer, delay_ms, ctx);
+    OsTestLayer_SetTimer(delay_ms, motor_mode_sequence_timer, ctx);
 }
 
 static void set_motor_outputs_off(void)

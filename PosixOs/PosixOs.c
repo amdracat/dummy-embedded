@@ -1,13 +1,116 @@
 #include "PosixOs.h"
+#include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <time.h>
 
+#define MAX_EVENTS 32
+
+typedef struct {
+    os_event_id_t id;
+    os_event_cb_t cb;
+    void *arg;
+    int used;
+} EventSubscriber;
+
+static EventSubscriber s_subscribers[MAX_EVENTS];
+static pthread_mutex_t s_event_lock = PTHREAD_MUTEX_INITIALIZER;
+static int s_event_initialized = 0;
+
+static void ensure_event_initialized(void)
+{
+    if (s_event_initialized) return;
+    memset(s_subscribers, 0, sizeof(s_subscribers));
+    s_event_initialized = 1;
+}
+
+#if defined(OS_TEST_LAYER_ENABLE)
+
+void PosixOs_Init(void)
+{
+    ensure_event_initialized();
+}
+
+void PosixOs_CreateTask(void (*taskFunc)(void), const char *name)
+{
+    (void)taskFunc;
+    (void)name;
+}
+
+void PosixOs_CreateMsgQueues(uint32_t queueId, uint32_t queueCount)
+{
+    (void)queueId;
+    (void)queueCount;
+}
+
+void PosixOs_GetMsg(uint32_t queueId, Message *msg)
+{
+    (void)queueId;
+    (void)msg;
+}
+
+void PosixOs_SendMsg(uint32_t queueId, uint32_t msgId, void *data)
+{
+    (void)queueId;
+    (void)msgId;
+    (void)data;
+}
+
+void PosixOs_SetupTimer(TimerCallback callback, uint32_t intervalMs, void *arg)
+{
+    (void)callback;
+    (void)intervalMs;
+    (void)arg;
+}
+
+void PosixOs_EventSubscribe(os_event_id_t id, os_event_cb_t cb, void *arg)
+{
+    ensure_event_initialized();
+    if (!cb) {
+        return;
+    }
+
+    pthread_mutex_lock(&s_event_lock);
+    for (int i = 0; i < MAX_EVENTS; i++) {
+        if (!s_subscribers[i].used) {
+            s_subscribers[i].used = 1;
+            s_subscribers[i].id = id;
+            s_subscribers[i].cb = cb;
+            s_subscribers[i].arg = arg;
+            break;
+        }
+    }
+    pthread_mutex_unlock(&s_event_lock);
+}
+
+void PosixOs_EventPublish(os_event_id_t id)
+{
+    ensure_event_initialized();
+    EventSubscriber copy[MAX_EVENTS];
+    int count = 0;
+
+    pthread_mutex_lock(&s_event_lock);
+    for (int i = 0; i < MAX_EVENTS; i++) {
+        if (s_subscribers[i].used && s_subscribers[i].id == id) {
+            copy[count++] = s_subscribers[i];
+        }
+    }
+    pthread_mutex_unlock(&s_event_lock);
+
+    for (int i = 0; i < count; i++) {
+        if (copy[i].cb) {
+            copy[i].cb(copy[i].arg);
+        }
+    }
+}
+
+void PosixOs_Lock(LockID id) { (void)id; }
+void PosixOs_Unlock(LockID id) { (void)id; }
+#else
 #define MAX_MESSAGE_QUEUES 32
 #define MESSAGE_QUEUE_CAPACITY 32
-#define MAX_EVENTS 32
 
 typedef struct {
     Message queue[MESSAGE_QUEUE_CAPACITY];
@@ -30,22 +133,32 @@ typedef struct {
     uint32_t intervalMs;
     void *arg;
 } TimerContext;
-
-typedef struct {
-    os_event_id_t id;
-    os_event_cb_t cb;
-    void *arg;
-    int used;
-} EventSubscriber;
-
 static InternalQueue s_queues[MAX_MESSAGE_QUEUES];
-static EventSubscriber s_subscribers[MAX_EVENTS];
-static pthread_mutex_t s_event_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t s_timer_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t s_timer_cond = PTHREAD_COND_INITIALIZER;
 static int s_timer_count = 0;
 static int s_initialized = 0;
 static pthread_mutex_t s_init_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t s_lock_objects[LOCK_ID_MAX] = {
+    PTHREAD_MUTEX_INITIALIZER,
+    PTHREAD_MUTEX_INITIALIZER
+};
+
+void PosixOs_Lock(LockID id)
+{
+    if (id < 0 || id >= LOCK_ID_MAX) {
+        return;
+    }
+    pthread_mutex_lock(&s_lock_objects[id]);
+}
+
+void PosixOs_Unlock(LockID id)
+{
+    if (id < 0 || id >= LOCK_ID_MAX) {
+        return;
+    }
+    pthread_mutex_unlock(&s_lock_objects[id]);
+}
 
 static void *task_entry(void *arg)
 {
@@ -271,3 +384,4 @@ void PosixOs_EventPublish(os_event_id_t id)
         }
     }
 }
+#endif

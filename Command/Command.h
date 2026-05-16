@@ -24,6 +24,6 @@
 //  Test_MotorTestを呼び出す
 void Command_Init(void);
 
-
+void Command_SyncTest(void);
 
 #endif

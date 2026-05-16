@@ -2,6 +2,7 @@
 #include "UnitTestFrame.h"
 #include "Motor.h"
 #include "I2cDrv.h"
+#include "OsTestLayer.h"
 #include <time.h>
 #include <stdint.h>
 
@@ -9,6 +10,17 @@ static void sleep_ms(int ms)
 {
     struct timespec ts = {ms / 1000, (ms % 1000) * 1000000};
     nanosleep(&ts, NULL);
+}
+
+static void sleepwrapper_ms(int ms)
+{
+#if defined(OS_TEST_LAYER_ENABLE)
+    OsTestLayer_Sim_RunAll();
+    OsTestLayer_Sim_AdvanceTime(ms);
+    OsTestLayer_Sim_RunAll();
+#else
+    sleep_ms(ms);
+#endif
 }
 
 void Test_MotorTest()
@@ -22,7 +34,7 @@ void Test_MotorTest()
     I2cDrv_DummySetReadData(0x48, 0x00, buffer, sizeof(buffer));
 
     Motor_SetSpeed(MOTOR_SPEED_FAST);
-    sleep_ms(100);
+    sleepwrapper_ms(100);
     ASSERT_EQ(MOTOR_SPEED_FAST, Motor_GetSpeed());
 
     const MotorMode modes[] = {
@@ -36,7 +48,7 @@ void Test_MotorTest()
 
     for (size_t i = 0; i < sizeof(modes) / sizeof(modes[0]); ++i) {
         Motor_SetMode(modes[i]);
-        sleep_ms(mode_delays[i]);
+        sleepwrapper_ms(mode_delays[i]);
         ASSERT_EQ(modes[i], Motor_GetMode());
     }
 

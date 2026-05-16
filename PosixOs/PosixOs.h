@@ -1,7 +1,6 @@
 #ifndef POSIX_OS_H
 #define POSIX_OS_H
 
-#include <pthread.h>
 #include <stdint.h>
 
 #define OS_TIMER_MAX 10
@@ -11,17 +10,13 @@ typedef struct {
     void *Data;
 } Message;
 
-typedef struct {
-    Message *queue;
-    int head;
-    int tail;
-    int count;
-    int capacity;
-    pthread_mutex_t lock;
-    pthread_cond_t not_empty;
-} MessageQueue;
-
 typedef void (*TimerCallback)(void* arg);
+
+typedef enum {
+    LOCK_ID_TEMPERATURE_SENSOR,
+    LOCK_ID_CHARGE_STATE,
+    LOCK_ID_MAX
+} LockID;
 
 void PosixOs_Init(void);
 void PosixOs_CreateTask(void (*taskFunc)(void), const char *name);
@@ -38,6 +33,9 @@ typedef void (*os_event_cb_t)(void *arg);
 
 void PosixOs_EventSubscribe(os_event_id_t id, os_event_cb_t cb, void *arg);
 void PosixOs_EventPublish(os_event_id_t id);
+
+void PosixOs_Lock(LockID id);
+void PosixOs_Unlock(LockID id);
 
 
 #endif /* POSIX_OS_H */

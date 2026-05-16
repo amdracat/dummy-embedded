@@ -1,0 +1,44 @@
+﻿#ifndef CHARGE_STATE_H
+#define CHARGE_STATE_H
+
+typedef enum {
+    CHARGE_EVENT_USB_INSERTED,
+    CHARGE_EVENT_USB_REMOVED,
+    CHARGE_EVENT_USB_TYPE_KNOWN,
+    CHARGE_EVENT_BATTERY_STOP_REQUEST,
+    CHARGE_EVENT_BATTERY_ALLOW_REQUEST,
+    CHARGE_EVENT_BATTERY_COMPLETE,
+    CHARGE_EVENT_HOST_STOP,
+    CHARGE_EVENT_HOST_ALLOW,
+    CHARGE_EVENT_TEMP_HIGH,
+    CHARGE_EVENT_TEMP_LOW,
+    CHARGE_EVENT_FATAL,
+    CHARGE_EVENT_MAX
+} ChargeCtrl_Event;
+
+typedef enum {
+    CHARGE_MSG_STATE,
+    CHARGE_MSG_SET_USB_CHARGEABLE,
+    CHARGE_MSG_MAX
+} ChargeCtrl_Message;
+
+#define MAX_CHG_EVENTS (CHARGE_EVENT_MAX)
+
+typedef enum {
+    CHARGE_STATE_DISCONNECTED,
+    CHARGE_STATE_WAIT_START,
+    CHARGE_STATE_CHARGING,
+    CHARGE_STATE_COMPLETE,
+    CHARGE_STATE_TEMP_STOP,
+    CHARGE_STATE_HOST_STOP,
+    CHARGE_STATE_ERROR,
+    CHARGE_STATE_MAX
+} ChargeCtrl_State;
+
+void ChargeState_Init(void);
+void ChargeState_ProcessEvent(ChargeCtrl_Event event);
+void ChargeState_SetUsbChargeable(int chargeable);
+ChargeCtrl_State ChargeState_GetState(void);
+int ChargeState_IsChargingActive(void);
+
+#endif // CHARGE_STATE_H

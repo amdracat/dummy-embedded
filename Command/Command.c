@@ -1,7 +1,9 @@
 #include "Command.h"
+#include "ChargeCtrl.h"
 #include "Motor.h"
 #include "I2cDrv.h"
 #include "Test_Motor.h"
+#include "Test_Charge.h"
 #include "PosixOs.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,7 +15,8 @@ static void execute_command(char *line);
 static void cmd_temp(int argc, char *argv[]);
 static void cmd_speed(int argc, char *argv[]);
 static void cmd_mode(int argc, char *argv[]);
-static void cmd_test(int argc, char *argv[]);
+static void cmd_charge(int argc, char *argv[]);
+static void cmd_test(void);
 
 void Command_Init(void)
 {
@@ -57,8 +60,10 @@ static void execute_command(char *line)
         cmd_speed(argc, argv);
     } else if (strcmp(argv[0], "mode") == 0) {
         cmd_mode(argc, argv);
+    } else if (strcmp(argv[0], "charge") == 0) {
+        cmd_charge(argc, argv);
     } else if (strcmp(argv[0], "test") == 0) {
-        cmd_test(argc, argv);
+        cmd_test();
     } else {
         printf("unknown command: %s\n", argv[0]);
     }
@@ -119,9 +124,59 @@ static void cmd_mode(int argc, char *argv[])
     }
 }
 
-static void cmd_test(int argc, char *argv[])
+static void cmd_charge(int argc, char *argv[])
 {
-    (void)argc;
-    (void)argv;
+    if (argc < 2) {
+        printf("Usage: charge <0-7>\n");
+        printf(" 0=usb insert\n");
+        printf(" 1=usb remove\n");
+        printf(" 2=battery stop request\n");
+        printf(" 3=battery allow request\n");
+        printf(" 4=battery complete\n");
+        printf(" 5=host stop\n");
+        printf(" 6=host allow\n");
+        printf(" 7=fatal error\n");
+        return;
+    }
+
+    int command = atoi(argv[1]);
+    switch (command) {
+        case 0:
+            ChargeCtrl_NotifyUsbInserted();
+            break;
+        case 1:
+            ChargeCtrl_NotifyUsbRemoved();
+            break;
+        case 2:
+            ChargeCtrl_NotifyBatteryStopRequest();
+            break;
+        case 3:
+            ChargeCtrl_NotifyBatteryAllowRequest();
+            break;
+        case 4:
+            ChargeCtrl_NotifyBatteryComplete();
+            break;
+        case 5:
+            ChargeCtrl_NotifyHostStop();
+            break;
+        case 6:
+            ChargeCtrl_NotifyHostAllow();
+            break;
+        case 7:
+            ChargeCtrl_NotifyFatalError();
+            break;
+        default:
+            printf("unknown charge command: %s\n", argv[1]);
+            break;
+    }
+}
+
+static void cmd_test(void)
+{
     Test_MotorTest();
+    Test_ChargeTest();
+}
+void Command_SyncTest(void)
+{
+    cmd_test();
 }
