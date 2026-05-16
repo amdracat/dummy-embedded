@@ -11,6 +11,7 @@ typedef struct {
 } Message;
 
 typedef void (*TimerCallback)(void* arg);
+typedef uint32_t TimerHandle;
 
 typedef enum {
     LOCK_ID_TEMPERATURE_SENSOR,
@@ -25,7 +26,8 @@ void PosixOs_GetMsg(uint32_t queueId, Message *msg);
 void PosixOs_SendMsg(uint32_t queueId, uint32_t msgId, void *data);
 
 //同時実行数はOS_TIMER_MAXまで。そこまでは同時実行を許容すること
-void PosixOs_SetupTimer(TimerCallback callback, uint32_t intervalMs, void* arg);
+TimerHandle PosixOs_SetupTimer(TimerCallback callback, uint32_t intervalMs, void* arg);
+void PosixOs_CancelTimer(TimerHandle handle);
 
 /* イベント */
 typedef int os_event_id_t;

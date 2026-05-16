@@ -3,9 +3,10 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-//#define OS_TEST_LAYER_ENABLE
+#define OS_TEST_LAYER_ENABLE
 
 typedef void (*os_job_fn_t)(void *arg);
+typedef uint32_t TimerHandle;
 
 /* 初期化 */
 void OsTestLayer_Init(void);
@@ -14,7 +15,8 @@ void OsTestLayer_Init(void);
 void OsTestLayer_Post(os_job_fn_t fn, void *arg, uint16_t size);
 
 /* タイマー */
-void OsTestLayer_SetTimer(uint32_t delay_ms, os_job_fn_t fn, void *arg);
+TimerHandle OsTestLayer_SetTimer(uint32_t delay_ms, os_job_fn_t fn, void *arg);
+void OsTestLayer_CancelTimer(TimerHandle handle);
 
 /* 手動スケジューリング（OS_MODE_MANUAL） */
 void OsTestLayer_Sim_RunOne(void);

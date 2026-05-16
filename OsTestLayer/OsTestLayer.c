@@ -58,27 +58,53 @@ typedef struct timer {
     uint32_t trigger_time;
     os_job_fn_t fn;
     void *arg;
+    uint32_t handle;
     struct timer *next;
 } timer_t;
 
 static timer_t *timer_head = NULL;
+static uint32_t s_next_timer_handle = 1;
 
 
-void OsTestLayer_SetTimer(uint32_t delay_ms, os_job_fn_t fn, void *arg) {
+#include <stdio.h>
+
+TimerHandle OsTestLayer_SetTimer(uint32_t delay_ms, os_job_fn_t fn, void *arg) {
 #if defined (OS_TEST_LAYER_ENABLE)
     timer_t *timer = malloc(sizeof(timer_t));
     if (timer == NULL) {
-        return;
+        return 0;
     }
     timer->trigger_time = g_time_ms + delay_ms;
     timer->fn = fn;
     timer->arg = arg;
+    timer->handle = s_next_timer_handle++;
     timer->next = timer_head;
     timer_head = timer;
+    return timer->handle;
 #else
     /* OSのネイティブタイマーを呼び出す */
-    PosixOs_SetupTimer(fn, delay_ms, arg);
+    return PosixOs_SetupTimer(fn, delay_ms, arg);
 #endif /* OS_TEST_LAYER_ENABLE */
+}
+
+void OsTestLayer_CancelTimer(TimerHandle handle)
+{
+#if defined (OS_TEST_LAYER_ENABLE)
+    if (handle == 0) return;
+    timer_t **pp = &timer_head;
+    while (*pp) {
+        timer_t *t = *pp;
+        if (t->handle == handle) {
+            *pp = t->next;
+            free(t);
+            return;
+        }
+        pp = &t->next;
+    }
+    /* not found -> maybe already fired or posted; nothing to do */
+#else
+    PosixOs_CancelTimer(handle);
+#endif
 }
 
 /* 手動スケジューリング（OS_MODE_MANUAL） */

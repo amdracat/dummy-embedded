@@ -4,6 +4,7 @@
 #include "I2cDrv.h"
 #include "Test_Motor.h"
 #include "Test_Charge.h"
+#include "Test_TimerCancel.h"
 #include "PosixOs.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -174,6 +175,7 @@ static void cmd_charge(int argc, char *argv[])
 static void cmd_test(void)
 {
     Test_MotorTest();
+    Test_TimerCancel();
     Test_ChargeTest();
 }
 void Command_SyncTest(void)

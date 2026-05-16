@@ -18,6 +18,7 @@ typedef struct {
 static EventSubscriber s_subscribers[MAX_EVENTS];
 static pthread_mutex_t s_event_lock = PTHREAD_MUTEX_INITIALIZER;
 static int s_event_initialized = 0;
+static uint32_t s_next_timer_handle = 1;
 
 static void ensure_event_initialized(void)
 {
@@ -58,11 +59,17 @@ void PosixOs_SendMsg(uint32_t queueId, uint32_t msgId, void *data)
     (void)data;
 }
 
-void PosixOs_SetupTimer(TimerCallback callback, uint32_t intervalMs, void *arg)
+TimerHandle PosixOs_SetupTimer(TimerCallback callback, uint32_t intervalMs, void *arg)
 {
     (void)callback;
     (void)intervalMs;
     (void)arg;
+    return s_next_timer_handle++;
+}
+
+void PosixOs_CancelTimer(TimerHandle handle)
+{
+    (void)handle;
 }
 
 void PosixOs_EventSubscribe(os_event_id_t id, os_event_cb_t cb, void *arg)
@@ -128,12 +135,16 @@ typedef struct {
     void (*taskFunc)(void);
 } TaskContext;
 
-typedef struct {
+typedef struct TimerContext {
     TimerCallback callback;
     uint32_t intervalMs;
     void *arg;
+    TimerHandle handle;
+    int active;
+    struct TimerContext *next;
 } TimerContext;
 static InternalQueue s_queues[MAX_MESSAGE_QUEUES];
+static TimerContext *s_timer_contexts = NULL;
 static pthread_mutex_t s_timer_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t s_timer_cond = PTHREAD_COND_INITIALIZER;
 static int s_timer_count = 0;
@@ -182,7 +193,25 @@ static void *timer_entry(void *arg)
     delay.tv_nsec = (context->intervalMs % 1000) * 1000000;
     nanosleep(&delay, NULL);
 
-    context->callback(context->arg);
+    int should_fire = 0;
+    pthread_mutex_lock(&s_timer_lock);
+    if (context->active) {
+        should_fire = 1;
+        context->active = 0;
+    }
+    // Remove from active timer list
+    TimerContext **pp = &s_timer_contexts;
+    while (*pp && *pp != context) {
+        pp = &(*pp)->next;
+    }
+    if (*pp == context) {
+        *pp = context->next;
+    }
+    pthread_mutex_unlock(&s_timer_lock);
+
+    if (should_fire) {
+        context->callback(context->arg);
+    }
 
     pthread_mutex_lock(&s_timer_lock);
     s_timer_count--;
@@ -191,6 +220,24 @@ static void *timer_entry(void *arg)
 
     free(context);
     return NULL;
+}
+
+void PosixOs_CancelTimer(TimerHandle handle)
+{
+    if (handle == 0) {
+        return;
+    }
+
+    pthread_mutex_lock(&s_timer_lock);
+    TimerContext *cur = s_timer_contexts;
+    while (cur) {
+        if (cur->handle == handle) {
+            cur->active = 0;
+            break;
+        }
+        cur = cur->next;
+    }
+    pthread_mutex_unlock(&s_timer_lock);
 }
 
 static void ensure_initialized(void)
@@ -306,11 +353,11 @@ void PosixOs_SendMsg(uint32_t queueId, uint32_t msgId, void *data)
     pthread_mutex_unlock(&queue->lock);
 }
 
-void PosixOs_SetupTimer(TimerCallback callback, uint32_t intervalMs, void *arg)
+TimerHandle PosixOs_SetupTimer(TimerCallback callback, uint32_t intervalMs, void *arg)
 {
     ensure_initialized();
     if (!callback) {
-        return;
+        return 0;
     }
 
     pthread_mutex_lock(&s_timer_lock);
@@ -326,22 +373,41 @@ void PosixOs_SetupTimer(TimerCallback callback, uint32_t intervalMs, void *arg)
         s_timer_count--;
         pthread_cond_signal(&s_timer_cond);
         pthread_mutex_unlock(&s_timer_lock);
-        return;
+        return 0;
     }
     context->callback = callback;
     context->intervalMs = intervalMs;
     context->arg = arg;
+    context->handle = s_next_timer_handle++;
+    context->active = 1;
+    context->next = NULL;
+
+    pthread_mutex_lock(&s_timer_lock);
+    context->next = s_timer_contexts;
+    s_timer_contexts = context;
+    pthread_mutex_unlock(&s_timer_lock);
 
     pthread_t thread;
     if (pthread_create(&thread, NULL, timer_entry, context) == 0) {
         pthread_detach(thread);
     } else {
-        free(context);
         pthread_mutex_lock(&s_timer_lock);
+        // keep count until thread cleanup? remove from list and decrement count immediately
+        TimerContext **pp = &s_timer_contexts;
+        while (*pp && *pp != context) {
+            pp = &(*pp)->next;
+        }
+        if (*pp == context) {
+            *pp = context->next;
+        }
         s_timer_count--;
         pthread_cond_signal(&s_timer_cond);
         pthread_mutex_unlock(&s_timer_lock);
+        free(context);
+        return 0;
     }
+
+    return context->handle;
 }
 
 void PosixOs_EventSubscribe(os_event_id_t id, os_event_cb_t cb, void *arg)
