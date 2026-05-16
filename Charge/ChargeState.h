@@ -1,6 +1,6 @@
 ﻿#ifndef CHARGE_STATE_H
 #define CHARGE_STATE_H
-
+#include <stdbool.h>
 typedef enum {
     CHARGE_EVENT_USB_INSERTED,
     CHARGE_EVENT_USB_REMOVED,
@@ -39,6 +39,6 @@ void ChargeState_Init(void);
 void ChargeState_ProcessEvent(ChargeCtrl_Event event);
 void ChargeState_SetUsbChargeable(int chargeable);
 ChargeCtrl_State ChargeState_GetState(void);
-int ChargeState_IsChargingActive(void);
+bool ChargeState_IsChargingActive(void);
 
 #endif // CHARGE_STATE_H

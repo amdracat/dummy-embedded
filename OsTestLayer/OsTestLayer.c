@@ -107,6 +107,14 @@ void OsTestLayer_CancelTimer(TimerHandle handle)
 #endif
 }
 
+void OsTestLayer_SyncSleep(uint32_t ms)
+{
+#if defined (OS_TEST_LAYER_ENABLE)
+#else
+    PosixOs_Sleep(ms);
+#endif
+}
+
 /* 手動スケジューリング（OS_MODE_MANUAL） */
 
 void OsTestLayer_Sim_RunOne(void)

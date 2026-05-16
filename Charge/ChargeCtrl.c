@@ -10,8 +10,6 @@
 #define CHARGE_QUEUE_COUNT 1
 #define CHARGE_TEMP_CHECK_MS 1000
 
-static int s_initialized = 0;
-
 typedef void (*ChargeTaskFunc)(void *data);
 
 static void charge_task(void);
@@ -32,95 +30,59 @@ static const struct {
 
 void ChargeCtrl_Init(void)
 {
-    if (s_initialized) {
-        return;
-    }
-
     PosixOs_CreateMsgQueues(CHARGE_QUEUE_ID, CHARGE_QUEUE_COUNT);
     PosixOs_CreateTask(charge_task, "ChargeCtrl");
     ChargeState_Init();
     OsTestLayer_SetTimer(CHARGE_TEMP_CHECK_MS, temperature_timer_callback, NULL);
-    s_initialized = 1;
 }
 
 void ChargeCtrl_SetUsbChargeable(int chargeable)
 {
-    if (!s_initialized) {
-        return;
-    }
     SendMsgWrapper_TaskCharge(CHARGE_MSG_SET_USB_CHARGEABLE, (void *)(intptr_t)chargeable);
 }
 
 void ChargeCtrl_NotifyUsbInserted(void)
 {
-    if (!s_initialized) {
-        return;
-    }
     SendMsgWrapper_TaskCharge(CHARGE_MSG_STATE, (void *)(intptr_t)CHARGE_EVENT_USB_INSERTED);
 }
 
 void ChargeCtrl_NotifyUsbRemoved(void)
 {
-    if (!s_initialized) {
-        return;
-    }
     SendMsgWrapper_TaskCharge(CHARGE_MSG_STATE, (void *)(intptr_t)CHARGE_EVENT_USB_REMOVED);
 }
 
 void ChargeCtrl_NotifyBatteryStopRequest(void)
 {
-    if (!s_initialized) {
-        return;
-    }
     SendMsgWrapper_TaskCharge(CHARGE_MSG_STATE, (void *)(intptr_t)CHARGE_EVENT_BATTERY_STOP_REQUEST);
 }
 
 void ChargeCtrl_NotifyBatteryAllowRequest(void)
 {
-    if (!s_initialized) {
-        return;
-    }
     SendMsgWrapper_TaskCharge(CHARGE_MSG_STATE, (void *)(intptr_t)CHARGE_EVENT_BATTERY_ALLOW_REQUEST);
 }
 
 void ChargeCtrl_NotifyBatteryComplete(void)
 {
-    if (!s_initialized) {
-        return;
-    }
     SendMsgWrapper_TaskCharge(CHARGE_MSG_STATE, (void *)(intptr_t)CHARGE_EVENT_BATTERY_COMPLETE);
 }
 
 void ChargeCtrl_NotifyHostStop(void)
 {
-    if (!s_initialized) {
-        return;
-    }
     SendMsgWrapper_TaskCharge(CHARGE_MSG_STATE, (void *)(intptr_t)CHARGE_EVENT_HOST_STOP);
 }
 
 void ChargeCtrl_NotifyHostAllow(void)
 {
-    if (!s_initialized) {
-        return;
-    }
     SendMsgWrapper_TaskCharge(CHARGE_MSG_STATE, (void *)(intptr_t)CHARGE_EVENT_HOST_ALLOW);
 }
 
 void ChargeCtrl_NotifyFatalError(void)
 {
-    if (!s_initialized) {
-        return;
-    }
     SendMsgWrapper_TaskCharge(CHARGE_MSG_STATE, (void *)(intptr_t)CHARGE_EVENT_FATAL);
 }
 
 void ChargeCtrl_DelayProc(void (*callback)(void *), uint32_t intervalMs, void *arg)
 {
-    if (callback == NULL) {
-        return;
-    }
-
     OsTestLayer_SetTimer(intervalMs, callback, arg);
 }
 
@@ -146,10 +108,6 @@ static void charge_task(void)
 
 static void process_message(const Message *msg)
 {
-    if (msg == NULL) {
-        return;
-    }
-
     switch (msg->MsgId) {
     case CHARGE_MSG_STATE:
         ChargeState_ProcessEvent((ChargeCtrl_Event)(intptr_t)msg->Data);
@@ -199,7 +157,6 @@ static void SendMsgWrapper_TaskCharge(uint32_t msgId, void *data)
 
 static void temperature_timer_callback(void *arg)
 {
-    (void)arg;
     int temperature = TemperatureSensor_GetTemperature();
 
     if (temperature >= 50) {

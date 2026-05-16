@@ -239,7 +239,11 @@ void PosixOs_CancelTimer(TimerHandle handle)
     }
     pthread_mutex_unlock(&s_timer_lock);
 }
-
+void PosixOs_Sleep(uint32_t ms)
+{
+    struct timespec ts = { ms / 1000, (ms % 1000) * 1000000 };
+    nanosleep(&ts, NULL);
+}
 static void ensure_initialized(void)
 {
     pthread_mutex_lock(&s_init_lock);

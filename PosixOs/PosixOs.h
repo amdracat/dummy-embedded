@@ -28,6 +28,7 @@ void PosixOs_SendMsg(uint32_t queueId, uint32_t msgId, void *data);
 //同時実行数はOS_TIMER_MAXまで。そこまでは同時実行を許容すること
 TimerHandle PosixOs_SetupTimer(TimerCallback callback, uint32_t intervalMs, void* arg);
 void PosixOs_CancelTimer(TimerHandle handle);
+void PosixOs_Sleep(uint32_t ms);
 
 /* イベント */
 typedef int os_event_id_t;

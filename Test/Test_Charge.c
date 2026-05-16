@@ -97,5 +97,44 @@ void Test_ChargeTest(void)
     sleepwrapper_ms(200);
     ASSERT_EQ(CHARGE_STATE_DISCONNECTED, ChargeCtrl_GetState());
 
+    //きわどいタイミングのイベント確認
+
+    //USB接続
+    ChargeCtrl_NotifyUsbInserted();
+    sleepwrapper_ms(1);
+
+    //状態は即時変更 充電開始待ち状態
+    ASSERT_EQ(CHARGE_STATE_WAIT_START, ChargeCtrl_GetState());
+
+    //電池許可イベント
+    ChargeCtrl_NotifyBatteryAllowRequest();
+
+    //USB種別判定待ち→OK
+    sleepwrapper_ms(100);
+
+    //状態が先に遷移する。充電状態へ
+    ASSERT_EQ(CHARGE_STATE_CHARGING, ChargeCtrl_GetState());
+
+    //物理状態は遅れているため、充電ICの設定的には非充電状態(200ms後に設定完了)
+    ASSERT_EQ(false, ChargeState_IsChargingActive());
+
+    sleepwrapper_ms(50);
+
+    // 物理状態の設定中にエラー検知
+    ChargeCtrl_NotifyFatalError();
+
+    //物理状態オンが完了し、保留していたオフを開始する(300ms)
+    sleepwrapper_ms(200);
+
+    //まだ設定状態としては充電オン状態
+    ASSERT_EQ(true, ChargeState_IsChargingActive());
+
+    sleepwrapper_ms(250);
+
+    //充電オフ状態完了
+    ASSERT_EQ(false, ChargeState_IsChargingActive());
+
+    //
+
     UnitTestFrame_ReportResult();
 }

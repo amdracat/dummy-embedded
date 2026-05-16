@@ -17,6 +17,7 @@ void OsTestLayer_Post(os_job_fn_t fn, void *arg, uint16_t size);
 /* タイマー */
 TimerHandle OsTestLayer_SetTimer(uint32_t delay_ms, os_job_fn_t fn, void *arg);
 void OsTestLayer_CancelTimer(TimerHandle handle);
+void OsTestLayer_SyncSleep(uint32_t ms);
 
 /* 手動スケジューリング（OS_MODE_MANUAL） */
 void OsTestLayer_Sim_RunOne(void);
